@@ -35,19 +35,25 @@ class PushError(Exception):
     pass
 
 
-def _post_json(url: str, payload: dict, timeout: int = 10):
+def _post_json(url: str, payload: dict, timeout: int = 10, strict: bool = False):
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}, method="POST"
     )
     # 出站目标校验：url 来自用户填的 webhook，必须过 netguard 的地址/协议/跳转检查
+    #
+    # H10：strict=True 时连 RFC1918 私网也拒绝。默认 False —— 用户自建的内网
+    # webhook（NAS 通知、自建 Bot）本来就是裸 HTTP 私网地址，一刀切会打死正常用法。
+    # 但只要这台机器把后端暴露到公网 / 给同网段的人发了口令，私网可达就成了
+    # 「借你的后端打你内网」的跳板 —— 那种部署下应打开 notify.strict_target。
     try:
-        return netguard.open_checked(req, timeout=timeout)
+        return netguard.open_checked(req, timeout=timeout,
+                                     allow_private_http=not strict)
     except netguard.BlockedTarget as e:
         raise PushError(str(e))
 
 
-def _post_form(url: str, fields: dict, timeout: int = 10):
+def _post_form(url: str, fields: dict, timeout: int = 10, strict: bool = False):
     data = urllib.parse.urlencode(fields).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -55,8 +61,10 @@ def _post_form(url: str, fields: dict, timeout: int = 10):
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
+    # H10：同 _post_json，strict 打开后拒绝一切私网目标
     try:
-        return netguard.open_checked(req, timeout=timeout)
+        return netguard.open_checked(req, timeout=timeout,
+                                     allow_private_http=not strict)
     except netguard.BlockedTarget as e:
         raise PushError(str(e))
 
@@ -293,8 +301,16 @@ def _format_serverchan(title: str, body: str) -> dict:
     return {"title": title, "desp": body.replace("\n", "\n\n")}
 
 
-def _send(kind: str, url: str, title: str, body: str, secret: str):
-    """真正发出请求。返回 (kind, text)。失败抛异常。"""
+def _send(kind: str, url: str, title: str, body: str, secret: str,
+          strict: bool = False):
+    """真正发出请求。返回 (kind, text)。失败抛异常。
+
+    strict=True（对应 notify.strict_target）时，连 RFC1918 私网目标也拒绝：
+    后端一旦被放到公网 / 口令发给了同网段的人，「能打私网」就等于「借你的
+    后端打你内网」。只有走用户自填 url 的 generic / dingtalk 分支才受它约束 ——
+    官方渠道（PushPlus / Bark / Server酱 / WxPusher）的 endpoint 是常量，
+    不受用户地址影响。
+    """
     if kind == "pushplus":
         # 统一发到官方 endpoint，token 从用户给的地址里抽
         token = pushplus_token(url)
@@ -341,7 +357,8 @@ def _send(kind: str, url: str, title: str, body: str, secret: str):
         payload = _build_payload(kind, title, body)
         if kind == "dingtalk":
             url = _dingtalk_signed_url(url, (secret or "").strip())
-        status, text = _post_json(url, payload)
+        # H10：只有这条分支的 url 完全来自用户配置，strict 才有意义
+        status, text = _post_json(url, payload, strict=strict)
 
     if not (200 <= status < 300):
         raise PushError(f"HTTP {status}: {text[:200]}")
@@ -361,8 +378,9 @@ def push(cfg: dict, title: str, body: str) -> bool:
         return True
 
     kind = detect_kind(url, ncfg.get("kind"))
+    strict = bool(ncfg.get("strict_target"))
     try:
-        _send(kind, url, title, body, (ncfg.get("secret") or "").strip())
+        _send(kind, url, title, body, (ncfg.get("secret") or "").strip(), strict=strict)
     except PushError as e:
         db.add_notify_log("error", title, f"{body}\n[push error] {e}", False)
         return False
@@ -387,8 +405,9 @@ def push_detail(cfg: dict, title: str, body: str) -> dict:
         return {"ok": False, "error": "还没填 Webhook 地址"}
 
     kind = detect_kind(url, ncfg.get("kind"))
+    strict = bool(ncfg.get("strict_target"))
     try:
-        _send(kind, url, title, body, (ncfg.get("secret") or "").strip())
+        _send(kind, url, title, body, (ncfg.get("secret") or "").strip(), strict=strict)
     except PushError as e:
         db.add_notify_log("error", title, f"{body}\n[push error] {e}", False)
         return {"ok": False, "error": str(e), "kind": kind}

@@ -71,6 +71,11 @@ DEFAULT_CONFIG = {
         "webhook_url": "",
         # 仅钉钉「加签」需要（SEC 开头）；没开加签留空
         "secret": "",
+        # H10：打开后 webhook 目标连 RFC1918 私网也拒绝。
+        # 默认 False —— 用户自建的内网 webhook（NAS / 自建 Bot）本来就是私网地址。
+        # 后端一旦暴露到公网、或口令发给了同网段的人，私网可达就等于
+        # 「借你的后端打你内网」，这种部署应打开它。
+        "strict_target": False,
     },
     "providers": {
         "workbuddy": {

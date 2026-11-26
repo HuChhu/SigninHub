@@ -40,6 +40,13 @@
         <domain includeSubdomains="true">minimaxi.com</domain>
         <!-- L8：华为码道（devcloud 签到接口 + codearts 页面） -->
         <domain includeSubdomains="true">huaweicloud.com</domain>
+        <!-- H9：下面四家同样持有 Cookie 型凭据（智谱 zpCookie / 豆包 dbCookie /
+             千帆 bceCookie / 腾讯 copilot cookie），此前漏在 base-config 里，
+             系统层不拦它们的明文降级。补进强 HTTPS 名单。 -->
+        <domain includeSubdomains="true">chatglm.cn</domain>
+        <domain includeSubdomains="true">doubao.com</domain>
+        <domain includeSubdomains="true">bce.baidu.com</domain>
+        <domain includeSubdomains="true">copilot.tencent.com</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
