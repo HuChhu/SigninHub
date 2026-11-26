@@ -16,9 +16,11 @@ on:
 permissions:
   contents: read
 
+# 每次触发用独立的 group（带 run_id），否则 dispatch + push 同时进来时
+# 后到的会把前一个 cancel 掉 —— 看起来像「构建失败」，实际根本没跑。
 concurrency:
-  group: ios-ipa-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-ipa-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   ipa:
