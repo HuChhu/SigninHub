@@ -100,6 +100,31 @@
     if (!BASE) return location.origin;
     return BASE.replace(/\/+$/, "");
   }
+
+  /* ============================================================
+     运行环境判定（一次算好，不随轮询变化）
+     ------------------------------------------------------------
+     四种组合：
+       · 安卓 App       有 SignHubApi 桥
+       · iOS / 浏览器   无桥
+       · 后端本机控制台  无桥，但页面就来自后端自己
+
+     NATIVE 只认「桥方法齐全」——addJavascriptInterface 只要 Activity 起来
+     就存在，但桥方法会随版本变化，拿 openLogin 当「完整原生能力」的探针，
+     与既有 window.SignHubApi && window.SignHubApi.openLogin 判据一致。
+     ============================================================ */
+  const NATIVE = !!(window.SignHubApi && typeof window.SignHubApi.openLogin === "function");
+  /** 是否手机 / 平板（决定「本机凭据」这类提示要不要装样子） */
+  const IS_MOBILE = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+  /** 是否可能存在桌面客户端（读取本机 Qoder/MiniMax 登录态） */
+  const HAS_LOCAL_APP = !IS_MOBILE;
+
+  const NO_NATIVE_LOGIN = NATIVE
+    ? "内置登录页没打开。请手动粘贴凭据，或重开 App 再试。"
+    : "这台设备上没有内置登录页。最省事：在跑后端的那台电脑上用浏览器打开控制台登录一次，凭据会存进后端；没有电脑就只能手动复制凭据贴到下面（手机上开不了开发者工具）。";
+  const NO_NATIVE_SCHED = NATIVE
+    ? "原生定时没触发。请检查系统的电池优化 / 自启动设置。"
+    : "这个按钮只在安卓 App 里可用：签到由后端那台设备按它的时间执行，iOS 的定时由系统决定、不保证准点。";
   /* M1（BUGS-v2.61）：口令不再写 localStorage。
      localStorage 是「同源、永久、任何脚本都能读」的存储 —— 后端一旦被 XSS 或
      局域网内被仿站页面劫持，令牌会跟着浏览器一直留在盘上（关掉浏览器也不消失，
@@ -201,7 +226,7 @@
       const p = await api("/api/ping");
       const v = p.appVersion || p.version || "?";
       const code = p.versionCode ? "（" + p.versionCode + "）" : "";
-      el.textContent = "版本 " + v + code + " · " + (p.local ? "安卓本地" : "电脑端");
+      el.textContent = "版本 " + v + code + " · " + (p.local ? "安卓本地" : NATIVE ? "App 内" : "远程后端");
     } catch (e) {
       el.textContent = "版本 —（无法读取 /api/ping）";
     }
@@ -1944,28 +1969,46 @@
       ai.addEventListener("click", (e) => {
         e.stopPropagation();
         if (openLogin("workbuddy-ai")) return;
-        toast("电脑端请浏览器登录 workbuddy.ai，F12 → Application → Local Storage → 复制 accessToken 粘到下面", 6000);
+        toast(PC_LOGIN_HINT_AI, 6000);
       });
     }
     if (multi) {
       multi.addEventListener("click", (e) => {
         e.stopPropagation();
         if (openMulti(key)) return;
-        toast("电脑端请到「多账号管理」里逐个添加（手机端可用 App 内网页登录）", 6000);
+        toast(NATIVE
+          ? "内置的多账号页没打开，请到「配置 → 签到配置」里逐个添加"
+          : "这里只能手工添加：到「配置 → 签到配置」里把每个账号的凭据各填一份（这台设备没有内置登录页，也不会自动采集）", 6000);
       });
     }
   }
 
-  const PC_LOGIN_HINT = {
-    workbuddy: "电脑端请浏览器登录 codebuddy.cn，F12 → Application → Local Storage → 复制 accessToken 粘到下面",
-    traesolo: "电脑端请浏览器登录 www.trae.cn，F12 → Application → Cookies → 复制 X-Cloudide-Session 粘到下面",
-    qoder: "电脑端请点「读取本机凭据」直接读 Qoder CN 客户端登录态，或把 dt- token 粘到下面",
-    minimax: "电脑端请浏览器登录 agent.minimax.cn，F12 → Application → Local Storage → 复制 _token 粘到下面",
-    huawei: "电脑端请浏览器登录 devcloud.cn-north-4.huaweicloud.com/chat/home，F12 → Network → 任一带 PromptCenterService 的请求 → 复制整条 Cookie 粘到下面",
-    doubao: "电脑端请浏览器登录 www.doubao.com，F12 → Network → 任一带 sessionid 的请求 → 复制整条 Cookie 粘到下面（手机端点「登录豆包」自动采集更省事）",
-    zhipu: "电脑端请浏览器登录 chatglm.cn，F12 → Application → Cookies → 复制整串 Cookie 粘到下面（手机端点「登录主账号」自动采集更省事）",
-    qianfan: "电脑端请浏览器登录 console.bce.baidu.com，F12 → Application → Cookies → 复制整串 Cookie 粘到下面（手机端点「登录主账号」自动采集更省事）",
+  /* 登录失败时的兜底提示，按环境分两套。
+     NATIVE：用户本来该走原生登录页，走到这里说明登录页没起来 → 提示重开 App + 手动粘贴。
+     非 NATIVE（iOS / 浏览器）：本来就没有登录页 → 直接给手动获取指引，
+     去掉所有「电脑端请…」开头（用户可能就在手机上），也去掉「点『登录主账号』自动采集」
+     这类在无桥环境下点了没反应的承诺。 */
+  const PC_LOGIN_HINT = NATIVE ? {
+    workbuddy: "内置登录页没打开。请手动粘贴：登录 codebuddy.cn → Application → Local Storage → accessToken",
+    traesolo: "内置登录页没打开。请手动粘贴：登录 www.trae.cn → Application → Cookies → X-Cloudide-Session",
+    qoder: "内置登录页没打开。请点「读取本机凭据」，或把 dt- token 粘到下面",
+    minimax: "内置登录页没打开。请手动粘贴 agent.minimax.cn 的 localStorage['_token']",
+    huawei: "内置登录页没打开。请手动粘贴 devcloud 的整条 Cookie",
+    doubao: "内置登录页没打开。请手动粘贴 www.doubao.com 的整条 Cookie",
+    zhipu: "内置登录页没打开。请手动粘贴 chatglm.cn 的整串 Cookie",
+    qianfan: "内置登录页没打开。请手动粘贴 console.bce.baidu.com 的整串 Cookie",
+  } : {
+    workbuddy: "登录 codebuddy.cn → 开发者工具 → Application → Local Storage → 复制 accessToken，贴到下面的「accessToken」",
+    traesolo: "登录 www.trae.cn → 开发者工具 → Application → Cookies → 复制 X-Cloudide-Session，贴到下面",
+    qoder: "点「读取本机凭据」直接读 Qoder CN 客户端登录态，或把 dt- token 贴到下面",
+    minimax: "登录 agent.minimax.cn → 开发者工具 → Application → Local Storage → 复制 _token，贴到下面",
+    huawei: "登录 devcloud.cn-north-4.huaweicloud.com/chat/home → 开发者工具 → Network → 任一带 PromptCenterService 的请求 → 复制整条 Cookie，贴到下面",
+    doubao: "登录 www.doubao.com → 开发者工具 → Network → 任一带 sessionid 的请求 → 复制整条 Cookie，贴到下面",
+    zhipu: "登录 chatglm.cn → 开发者工具 → Application → Cookies → 复制整串 Cookie，贴到下面",
+    qianfan: "登录 console.bce.baidu.com → 开发者工具 → Application → Cookies → 复制整串 Cookie，贴到下面",
   };
+  /* 「国际版」按钮专用（workbuddy.ai 与国内版账号体系不通） */
+  const PC_LOGIN_HINT_AI = "登录 workbuddy.ai → 开发者工具 → Application → Local Storage → 复制 accessToken，贴到下面（与国内版账号体系不同，别填错区域）";
 
   /**
    * 自绘下拉（用户 m20782）。
@@ -2761,7 +2804,7 @@
       toast("已提交后台签到，完成后会有通知，稍后点「刷新」看结果");
       setTimeout(loadAutoDiag, 6000);
     } else {
-      toast("仅 App 内可用");
+      toast(NO_NATIVE_SCHED, 6000);
     }
   });
   on("#saveSched", "click", async () => {
@@ -2985,7 +3028,9 @@
     if (window.SignHubApi && window.SignHubApi.openAccounts) {
       window.SignHubApi.openAccounts();
     } else {
-      toast("请到「配置 → 签到配置 → WorkBuddy」里管理账号");
+      toast(NATIVE
+        ? "内置的多账号页没打开，请到「配置 → 签到配置 → WorkBuddy」里管理"
+        : "到「配置 → 签到配置 → WorkBuddy」里逐个添加账号（这台设备没有内置多账号页）");
     }
   });
 
@@ -3868,7 +3913,7 @@
       return true;
     } catch (err) {
       if (location.hash.includes("debug")) document.title = "ERR:" + err.message + " | " + String(err.stack || "").slice(0, 400);
-      setConn(false, "无法连接 " + baseUrl() + "：" + err.message + "（确认电脑端已启动、地址正确、口令一致）");
+      setConn(false, "无法连接 " + baseUrl() + "：" + err.message + "（确认后端正启动、地址正确、口令一致）");
       toast("连接失败：" + err.message, 4000);
       return false;
     }
@@ -4415,9 +4460,14 @@
 
     // 电脑端 / 浏览器打开时没有原生桥：整块退化成提示，不显示一堆假的「未授权」
     if (!bridge || typeof bridge.bgStatus !== "function") {
-      box.innerHTML = `<p class="muted small" style="margin:0">电脑端没有这些限制：定时由电脑自己的任务计划保证。这一项只在手机上生效。</p>`;
+      // 非原生（iOS / 浏览器）：这块面板原来写「电脑端没有这些限制…只在手机上生效」，
+      // 对 iOS 是反的 —— iOS 恰恰是没有任务计划保证的那一端。按是否手机分两种说法。
+      const hint = IS_MOBILE
+        ? "这是远程控制台：定时不在这里跑。签到由后端那台设备按它的时间执行；本机（手机）切到后台后连接会断，但后端不受影响。"
+        : "这是浏览器控制台：定时由后端那台设备自己保证，本页关掉不影响签到。";
+      box.innerHTML = `<p class="muted small" style="margin:0">${hint}</p>`;
       const st0 = $("#bgState");
-      if (st0) st0.textContent = "仅手机端";
+      if (st0) st0.textContent = IS_MOBILE ? "由后端保证" : "不受本页影响";
       return;
     }
 

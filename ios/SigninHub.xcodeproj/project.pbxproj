@@ -14,20 +14,16 @@
 		A1000005 /* WebShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* WebShell.swift */; };
 		A1000006 /* BGSign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006 /* BGSign.swift */; };
 		A1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* Assets.xcassets */; };
-		A1000008 /* backend in Resources */ = {isa = PBXBuildFile; fileRef = A2000008 /* backend */; };
-		A1000009 /* python in Resources */ = {isa = PBXBuildFile; fileRef = A2000009 /* python */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A2000001 /* SigninHubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SigninHubApp.swift; sourceTree = "<group>"; };
 		A2000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A2000003 /* BackendEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendEngine.swift; sourceTree = "<group>"; };
-		A2000004 /* KeychainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainBox.swift; sourceTree = "<group>"; };
-		A2000005 /* WebShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebShell.swift; sourceTree = "<group>"; };
-		A2000006 /* BGSign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BGSign.swift; sourceTree = "<group>"; };
+		A2000004 /* KeychainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store/KeychainBox.swift; sourceTree = "<group>"; };
+		A2000005 /* WebShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Web/WebShell.swift; sourceTree = "<group>"; };
+		A2000006 /* BGSign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Background/BGSign.swift; sourceTree = "<group>"; };
 		A2000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A2000008 /* backend */ = {isa = PBXFileReference; lastKnownFileType = folder; name = backend; path = "../../backend"; sourceTree = "<group>"; };
-		A2000009 /* python */ = {isa = PBXFileReference; lastKnownFileType = folder; name = python; path = "python-dist"; sourceTree = "<group>"; };
 		A2000010 /* SigninHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SigninHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -77,8 +73,6 @@
 		A4000004 /* Bundled */ = {
 			isa = PBXGroup;
 			children = (
-				A2000008 /* backend */,
-				A2000009 /* python */,
 			);
 			name = Bundled;
 			sourceTree = "<group>";
@@ -148,8 +142,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000007 /* Assets.xcassets in Resources */,
-				A1000008 /* backend in Resources */,
-				A1000009 /* python in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

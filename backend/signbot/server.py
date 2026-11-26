@@ -1186,6 +1186,11 @@ class Handler(BaseHTTPRequestHandler):
             from . import trae as trm
             from concurrent.futures import ThreadPoolExecutor
             totals = {}
+            # BUG：这里原来直接用 cfg，但 do_POST 里第一次给它赋值在 /api/test/* 分支
+            # （1344 行），Python 的作用域规则让它成为整个函数的局部变量 ——
+            # 走到这里还没赋值，直接 UnboundLocalError，请求被判 000 连接断开。
+            # 前端「刷新余额」100% 失败，且服务端只能在 stderr 里看到栈。
+            cfg = load_config()
             wb_cfg = (cfg.get("providers", {}).get("workbuddy", {}) or {}).get("wb") or {}
             trae_cfg = (cfg.get("providers", {}).get("traesolo", {}) or {}).get("trae") or {}
 

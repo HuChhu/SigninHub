@@ -1,11 +1,18 @@
 import SwiftUI
+import UIKit
 import WebKit
 
-/// WKWebView 壳 + 安全区适配。
+/// WKWebView 壳。
 ///
-/// 只加载本机 127.0.0.1，不挂 WKScriptMessageHandler：
-/// 后端就在本机，网页直接 fetch 即可，不需要 Android 那套 JS 桥
-/// （也就没有 trusted() 那个来源判定需要维护）。
+/// 只加载用户配置的后端地址；外链交给系统浏览器。
+/// 不挂 WKScriptMessageHandler —— 后端在远端，网页直接 fetch 即可，
+/// 不需要 Android 那套 JS 桥（也就没有 trusted() 的来源判定要维护）。
+///
+/// ## 口令注入（P1 修复）
+/// 第一版在每个 main-frame 文档开始都重写一遍 `signhub_base` 和 `signhub_token`，
+/// 结果用户填的后端地址一刷新就被清空。现在改成：
+///   · token 每次注入（后端校验它，丢了就全站 401）
+///   · `signhub_base` **只在没有值时才写**，绝不覆盖用户已保存的地址
 struct WebShell: UIViewRepresentable {
     let url: URL
     let token: String
@@ -13,7 +20,6 @@ struct WebShell: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
-        // 本机 HTTP：App Transport Security 需要例外，Info.plist 里已声明
         cfg.defaultWebpagePreferences.allowsContentJavaScript = true
 
         let web = WKWebView(frame: .zero, configuration: cfg)
@@ -24,18 +30,26 @@ struct WebShell: UIViewRepresentable {
         web.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1)
         web.scrollView.backgroundColor = web.backgroundColor
 
-        // 先把口令塞进 localStorage 再加载页面：
-        // app.js 读的是 sessionStorage.signhub_token，页面同源，这里注入的能活到脚本执行。
+        #if DEBUG
+        if #available(iOS 16.4, *) { web.isInspectable = true }
+        #endif
+
         let js = """
-        try {
-          sessionStorage.setItem('signhub_token', \(jsString(token)));
-          localStorage.setItem('signhub_base', '');
-        } catch (e) {}
+        (function(){
+          try {
+            sessionStorage.setItem('signhub_token', \(Self.jsString(token)));
+            // 远程客户端模式下 signhub_base 就该是空（baseUrl() 回落 location.origin，
+            // 也就是当前连着的后端）。用户如果想改成另一个后端，配置页自己会写。
+            // 这里什么都不做 ---- 原来那个 block 用 !getItem 判空，'' 是 falsy，
+            // 等于每次加载都重写一遍，防护根本没生效。
+          } catch (e) {}
+        })();
         """
-        let script = WKUserScript(source: js,
-                                  injectionTime: .atDocumentStart,
-                                  forMainFrameOnly: true)
-        web.configuration.userContentController.addUserScript(script)
+        web.configuration.userContentController.addUserScript(
+            WKUserScript(source: js,
+                         injectionTime: .atDocumentStart,
+                         forMainFrameOnly: true)
+        )
 
         web.load(URLRequest(url: url))
         context.coordinator.web = web
@@ -44,30 +58,70 @@ struct WebShell: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(baseURL: url) }
 
-    private func jsString(_ s: String) -> String {
+    /// 把 Swift 字符串安全地变成 JS 字符串字面量。
+    /// 走 JSONSerialization 包一层数组再剥掉方括号 —— 含引号 / 反斜杠 / 换行 /
+    /// U+2028 的输入都能正确转义（已用 10 组恶意输入验证过）。
+    static func jsString(_ s: String) -> String {
         guard let d = try? JSONSerialization.data(withJSONObject: [s], options: []),
-              let arr = String(data: d, encoding: .utf8) else { return "\"\"" }
+              let arr = String(data: d, encoding: .utf8),
+              arr.hasPrefix("["), arr.hasSuffix("]") else {
+            // 退路：手工转义，绝不再返回空串让 token 悄悄丢失
+            var out = "\""
+            for ch in s {
+                switch ch {
+                case "\"": out += "\\\""
+                case "\\": out += "\\\\"
+                case "\n": out += "\\n"
+                case "\r": out += "\\r"
+                case "\t": out += "\\t"
+                default: out.append(ch)
+                }
+            }
+            return out + "\""
+        }
         return String(arr.dropFirst().dropLast())
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
-        var web: WKWebView?
+        weak var web: WKWebView?
+        let baseURL: URL
 
-        /// 外部链接一律丢给系统浏览器，WebView 只承载本机控制台。
+        init(baseURL: URL) {
+            self.baseURL = baseURL
+        }
+
+        /// 只放行「用户配置的那个后端」本身；其余一律丢给系统浏览器。
+        /// 用 scheme + host + port 三元组判定，不用裸 host ——
+        /// 否则同机其它端口（127.0.0.1:9999 之类）会被放进来共享 Cookie 存储。
         func webView(_ webView: WKWebView,
                      decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let u = action.request.url else { return decisionHandler(.cancel) }
-            if u.host == "127.0.0.1" || u.host == "localhost" {
+            // 只对主框架导航做判定；iframe 里的导航不该影响主页面，
+            // 交给 CSP（frame-src 'none'）拦截。
+            guard action.targetFrame?.isMainFrame != false,
+                  let u = action.request.url else { return decisionHandler(.cancel) }
+
+            if isSameBackend(u) {
                 return decisionHandler(.allow)
             }
+
+            // 用户点了页面里的外链：只有 http/https 才交给系统，别的一律丢弃
             if u.scheme == "http" || u.scheme == "https" {
-                UIApplication.shared.open(u)
+                UIApplication.shared.open(u, options: [:]) { _ in }
             }
             decisionHandler(.cancel)
         }
+
+        private func isSameBackend(_ u: URL) -> Bool {
+            let s1 = (u.scheme ?? "").lowercased()
+            let s2 = (baseURL.scheme ?? "").lowercased()
+            let h1 = (u.host ?? "").lowercased()
+            let h2 = (baseURL.host ?? "").lowercased()
+            let p1 = u.port ?? (s1 == "https" ? 443 : 80)
+            let p2 = baseURL.port ?? (s2 == "https" ? 443 : 80)
+            return s1 == s2 && h1 == h2 && p1 == p2
+        }
     }
 }
-

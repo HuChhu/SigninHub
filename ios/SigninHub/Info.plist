@@ -42,8 +42,9 @@
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <false/>
 
-    <!-- 本机后端跑在 http://127.0.0.1:8787，需要 ATS 例外。
-         只针对回环地址开例外，不是全局关 ATS。 -->
+    <!-- 后端可以是局域网 IP（裸 HTTP）或公网 https。
+         NSAllowsLocalNetworking 覆盖私网；对回环额外开口子。
+         不用 NSAllowsArbitraryLoads —— 那不是这个 App 需要的范围。 -->
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>
@@ -65,15 +66,15 @@
         </dict>
     </dict>
 
+    <!-- 只有 app.signhub.tick 一条：BGAppRefreshTask 需要 fetch 模式。
+         不再声明 processing —— 那只配 BGProcessingTaskRequest，声明了也用不上。 -->
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
-        <string>app.signhub.refresh</string>
+        <string>app.signhub.tick</string>
     </array>
     <key>UIBackgroundModes</key>
     <array>
         <string>fetch</string>
-        <string>processing</string>
     </array>
 </dict>
 </plist>
-

@@ -155,7 +155,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_OPENER = urllib.request.build_opener(_NoRedirect)
+# 只装「禁自动重定向」一个 handler。
+#
+# 原来直接 build_opener(_NoRedirect)，它会**默认补上 ProxyHandler** —— 那个 handler
+# 读 HTTP_PROXY / http_proxy / HTTPS_PROXY 环境变量。后果：check_url 校验的是目标
+# 域名（解析出公网 IP 就放行），实际 TCP 连的却是代理；代理再转发到 10.1.2.3 /
+# 192.168.1.1 时，整层 SSRF 防护被绕过，而且日志里看不出任何异常。
+#
+# 显式传空 ProxyHandler 把默认的挤掉：出站一律直连，校验的就是真正连的地址。
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
 
 def open_checked(req: urllib.request.Request, timeout: float = 10.0,
