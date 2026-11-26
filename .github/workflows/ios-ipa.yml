@@ -1,0 +1,79 @@
+name: iOS IPA (unsigned)
+
+# 出未签名 IPA，交给调用方用自己的证书签名（AltStore / Sideloadly / 企业证书）。
+# 仓库不持有任何 iOS 签名资料 —— macOS runner 上没有开发证书，
+# CODE_SIGNING_ALLOWED=NO 是唯一能跑通的路径，也正是自签安装需要的输入。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'backend/**'
+      - 'scripts/build_ios_ipa.sh'
+      - '.github/workflows/ios-ipa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    # macos-14 = Apple Silicon + Xcode 15.4。要 iOS 18+ SDK 换成 macos-15。
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          sw_vers
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Select newest Xcode
+        run: |
+          ls /Applications | grep -i Xcode || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+
+      - name: Cache CPython for iOS
+        uses: actions/cache@v4
+        with:
+          path: ios/python-dist
+          key: cpython-ios-3.12.8-20241122
+
+      - name: Build IPA
+        env:
+          PY_VER: 3.12.8
+          PY_TAG: '20241122'
+        run: bash scripts/build_ios_ipa.sh
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SigninHub-ios-unsigned-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+          path: build/SigninHub-unsigned.ipa
+
+      - name: Retain diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-diagnostics-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: /tmp/xcodebuild.log
