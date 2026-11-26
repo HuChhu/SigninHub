@@ -41,10 +41,12 @@ enum BGSign {
 
             refresh.expirationHandler = { finish(false) }
 
-            // 真超时兜底：iOS 通常给 ~25s，15s 就主动收尾。
-            // 原来只靠 URLSession 的 timeoutInterval，Keychain 阻塞或 DNS 卡住时
-            // 就永远走不到 finish。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { finish(false) }
+            // 真超时兜底。iOS 通常给 ~25s，22s 收尾。
+            // 必须是「兜底」而不是「主路径」：原来写 15s，而 tick 的网络超时是 20s，
+            // 网络稍慢就先被兜底判失败 —— 后台探活几乎永远报 false，
+            // 系统会因此降低本 App 的调度频率。现在兜底 22s、网络 12s，正常情况下
+            // 永远是 tick 先返回。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 22) { finish(false) }
 
             Task {
                 let ok = await tick()
@@ -75,7 +77,7 @@ enum BGSign {
         }
         var req = URLRequest(url: base.appendingPathComponent("api/status"))
         req.setValue(token, forHTTPHeaderField: "X-API-Token")
-        req.timeoutInterval = 20
+        req.timeoutInterval = 12
 
         do {
             let (_, resp) = try await URLSession.shared.data(for: req)

@@ -18,17 +18,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/backend/web"
 DST="$ROOT/android/app/src/main/assets"
 
-# 需要同步的文件清单（相对路径）。新加页面记得加到这里。
-FILES=(
-  "index.html"
-  "sw.js"
-  "manifest.webmanifest"
-  "static/app.js"
-  "static/app.css"
-  "static/icon-180.png"
-  "static/icon-192.png"
-  "static/icon-512.png"
-)
+# 同步范围：backend/web 下的**全部文件**。原来是硬编码 8 个，
+# 新加静态文件时既不同步也不检测，等于悄悄分叉。
+# 例外：什么都不排除 —— 后端 web 目录本来就只放前端资源。
+mapfile -t FILES < <(cd "$SRC" && find . -type f -printf '%P\n' | sort)
 
 check=0
 [[ "${1:-}" == "--check" ]] && check=1
@@ -52,17 +45,12 @@ for f in "${FILES[@]}"; do
   fi
 done
 
-# logos 目录整棵同步
-if [[ -d "$SRC/static/logos" ]]; then
-  if [[ $check -eq 1 ]]; then
-    if ! diff -rq "$SRC/static/logos" "$DST/static/logos" >/dev/null 2>&1; then
-      echo "  [分叉] static/logos/"
-      diffs=1
-    fi
-  else
-    mkdir -p "$DST/static/logos"
-    cp -f "$SRC"/static/logos/* "$DST/static/logos/" 2>/dev/null || true
-  fi
+
+# 反向检查：Android assets 里有、backend/web 里没有的文件也算分叉
+if [[ $check -eq 1 && -d "$DST" ]]; then
+  while IFS= read -r f; do
+    [[ -e "$SRC/$f" ]] || { echo "  [多余] android/assets/$f"; diffs=1; }
+  done < <(cd "$DST" && find . -type f -printf '%P\n')
 fi
 
 if [[ $check -eq 1 ]]; then
@@ -71,7 +59,7 @@ if [[ $check -eq 1 ]]; then
     echo "网页资源已分叉：先跑 scripts/sync_web.sh 再提交。"
     exit 1
   fi
-  echo "网页资源一致（${#FILES[@]} 个文件 + logos）"
+  echo "网页资源一致（${#FILES[@]} 个文件）"
 else
   echo "已同步 backend/web → android/app/src/main/assets"
 fi

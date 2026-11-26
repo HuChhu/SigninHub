@@ -50,19 +50,27 @@ jobs:
           if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
           xcodebuild -version
 
+      - name: 工程自检（越早失败越省时间）
+        run: python3 scripts/check_ios_project.py "$PWD"
+
       - name: 网页资源一致性（backend/web 与 Android assets 不能分叉）
         run: bash scripts/sync_web.sh --check
 
       # 只验编译、不签名不出包。Swift 语法错误在这一步就暴露，
       # 不用等 archive 跑到一半 —— 上一版就是漏了一个反斜杠把 CI 搞红的。
+      # set -o pipefail 是关键：没有它，xcodebuild ... | tee | tail 的退出码
+      # 取的是 tail（永远 0），编译错误在这一步不会让 job 红，
+      # 会一路走到 archive 去打一个不存在的 IPA。
       - name: 编译验证（模拟器，快速失败）
+        shell: bash
         run: |
+          set -euo pipefail
           cd ios
           xcodebuild -project SigninHub.xcodeproj -scheme SigninHub \
             -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO build \
-            2>&1 | tee /tmp/compile.log | tail -30
+            2>&1 | tee /tmp/compile.log | tail -40
 
       - name: Build IPA
         run: bash scripts/build_ios_ipa.sh
@@ -83,4 +91,6 @@ jobs:
           name: ios-diagnostics-${{ github.sha }}
           retention-days: 7
           if-no-files-found: ignore
-          path: /tmp/xcodebuild.log
+          path: |
+            /tmp/compile.log
+            /tmp/xcodebuild.log

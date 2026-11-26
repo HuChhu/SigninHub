@@ -53,10 +53,26 @@ struct WebShell: UIViewRepresentable {
 
         web.load(URLRequest(url: url))
         context.coordinator.web = web
+        context.coordinator.loadedURL = url
         return web
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    /// 换后端时必须重新加载：SwiftUI 会复用同一个 WebShell 实例
+    /// （同层级、同类型），makeUIView 不会再跑，URL 变了页面还停在旧后端上。
+    /// 用户「改了地址，重新连」走的就是这条路，不处理就是必现白屏。
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        guard context.coordinator.loadedURL != url else { return }
+        context.coordinator.loadedURL = url
+        context.coordinator.baseURL = url
+
+        // 口令也要重注入：新后端的口令可能不同
+        let js = """
+        try { sessionStorage.setItem('signhub_token', \(Self.jsString(token))); } catch (e) {}
+        """
+        uiView.evaluateJavaScript(js) { _, _ in
+            uiView.load(URLRequest(url: url))
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(baseURL: url) }
 
@@ -86,10 +102,13 @@ struct WebShell: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var web: WKWebView?
-        let baseURL: URL
+        var baseURL: URL
+        /// 当前已加载的后端地址，用于 updateUIView 判断要不要重载
+        var loadedURL: URL?
 
         init(baseURL: URL) {
             self.baseURL = baseURL
+            self.loadedURL = baseURL
         }
 
         /// 只放行「用户配置的那个后端」本身；其余一律丢给系统浏览器。

@@ -190,7 +190,7 @@ final class BackendEngine: ObservableObject {
         case NSURLErrorCannotFindHost:
             return "解析不到主机 \(host)。局域网请直接填 IP。"
         case NSURLErrorAppTransportSecurityRequiresSecureConnection:
-            return "被 ATS 拦了。这一版只对 127.0.0.1 / 局域网 IP 开了明文例外；公网地址请用 https。"
+            return "被 iOS 的 ATS 拦了：明文 http 只放行本机地址、.local 域名和局域网 IP。\\n公网地址（VPS 之类）请给后端配 https 反代。"
         default:
             return "\(ns.localizedDescription)（\(ns.code)）"
         }
